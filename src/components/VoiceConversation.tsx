@@ -26,7 +26,77 @@ const VoiceConversation: React.FC<VoiceConversationProps> = ({
   const [uiMessage, setUiMessage] = useState('');
   
   const recognitionRef = useRef<any>(null);
+  const isProcessingRef = useRef(false);
+  const conversationActiveRef = useRef(conversationActive);
+  const handleUserMessageRef = useRef<(transcript: string) => Promise<void>>(() => Promise.resolve());
   const { playTextSpeech } = useAudioPlayback();
+
+  conversationActiveRef.current = conversationActive;
+
+  const handleUserMessage = async (transcript: string) => {
+    if (!transcript.trim()) return;
+    if (isProcessingRef.current) return;
+
+    const userMessage: Message = {
+      role: 'user',
+      content: transcript,
+      timestamp: Date.now()
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setCurrentTranscript('');
+    setIsProcessing(true);
+    isProcessingRef.current = true;
+
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+
+      const messagesWithNew = [...messages, userMessage];
+      const response = await callOpenAIAPI(
+        transcript,
+        messagesWithNew,
+        imageTitle,
+        imageDescription
+      );
+
+      if (response.success) {
+        const assistantMessage: Message = {
+          role: 'assistant',
+          content: response.text || '',
+          timestamp: Date.now()
+        };
+
+        setMessages(prev => [...prev, assistantMessage]);
+        setUiMessage(response.text || '');
+
+        if (response.toolCalls && response.toolCalls.length > 0) {
+          processToolCalls(response.toolCalls);
+        }
+
+        if (response.text) {
+          await playTextSpeech(response.text);
+        }
+
+        if (recognitionRef.current && conversationActiveRef.current) {
+          setTimeout(() => {
+            recognitionRef.current?.start();
+          }, 500);
+        }
+      } else {
+        setUiMessage(`Error: ${response.error}`);
+      }
+    } catch (error) {
+      console.error('Error processing message:', error);
+      setUiMessage('An error occurred. Please try again.');
+    } finally {
+      setIsProcessing(false);
+      isProcessingRef.current = false;
+    }
+  };
+
+  handleUserMessageRef.current = handleUserMessage;
 
   // Initialize speech recognition
   useEffect(() => {
@@ -58,7 +128,7 @@ const VoiceConversation: React.FC<VoiceConversationProps> = ({
         setCurrentTranscript(finalTranscript || interimTranscript);
 
         if (finalTranscript) {
-          handleUserMessage(finalTranscript);
+          handleUserMessageRef.current(finalTranscript.trim());
         }
       };
 
@@ -71,73 +141,14 @@ const VoiceConversation: React.FC<VoiceConversationProps> = ({
         setIsListening(false);
       };
     }
-  }, []);
 
-
-
-  const handleUserMessage = async (transcript: string) => {
-    if (!transcript.trim()) return;
-
-    const userMessage: Message = {
-      role: 'user',
-      content: transcript,
-      timestamp: Date.now()
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setCurrentTranscript('');
-    setIsProcessing(true);
-
-    try {
-      // Stop listening while processing
+    return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        recognitionRef.current.abort?.();
+        recognitionRef.current = null;
       }
-
-      // Call OpenAI API with conversation context
-      const response = await callOpenAIAPI(
-        transcript,
-        messages,
-        imageTitle,
-        imageDescription
-      );
-
-      if (response.success) {
-        const assistantMessage: Message = {
-          role: 'assistant',
-          content: response.text || '',
-          timestamp: Date.now()
-        };
-
-        setMessages(prev => [...prev, assistantMessage]);
-        setUiMessage(response.text || '');
-
-        // Process any tool calls
-        if (response.toolCalls && response.toolCalls.length > 0) {
-          processToolCalls(response.toolCalls);
-        }
-
-        // Play audio response using browser speech synthesis
-        if (response.text) {
-          await playTextSpeech(response.text);
-        }
-
-        // Resume listening
-        if (recognitionRef.current && conversationActive) {
-          setTimeout(() => {
-            recognitionRef.current?.start();
-          }, 500);
-        }
-      } else {
-        setUiMessage(`Error: ${response.error}`);
-      }
-    } catch (error) {
-      console.error('Error processing message:', error);
-      setUiMessage('An error occurred. Please try again.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+    };
+  }, []);
 
   const processToolCalls = (toolCalls: any[]) => {
     toolCalls.forEach(call => {
@@ -151,15 +162,14 @@ const VoiceConversation: React.FC<VoiceConversationProps> = ({
     });
   };
 
-  const startConversation = () => {
+  const startConversation = async () => {
     setConversationActive(true);
     setMessages([]);
     setUiMessage('');
 
-    // Start AI greeting with image context from props
-    initiateAIGreeting();
+    // Start AI greeting first so it's not overwritten by user speech
+    await initiateAIGreeting();
 
-    // Start listening
     if (recognitionRef.current) {
       recognitionRef.current.start();
     }
@@ -206,19 +216,15 @@ const VoiceConversation: React.FC<VoiceConversationProps> = ({
 
   return (
     <div className="voice-conversation-container">
-      <div className="conversation-header">
-        <h2>🗣️ Voice Conversation</h2>
-      </div>
+      <header className="conversation-header">
+        <h2>Voice Conversation</h2>
+      </header>
 
       <div className="conversation-status">
         {conversationActive ? (
-          <div className="status-badge active">
-            🟢 Conversation Active
-          </div>
+          <span className="status-badge active">Conversation active</span>
         ) : (
-          <div className="status-badge inactive">
-            ⚪ Ready to Start
-          </div>
+          <span className="status-badge inactive">Ready to start</span>
         )}
       </div>
 
@@ -229,61 +235,63 @@ const VoiceConversation: React.FC<VoiceConversationProps> = ({
             className="btn btn-primary btn-large"
             disabled={isProcessing}
           >
-            🎙️ Start Conversation
+            Start conversation
           </button>
         ) : (
           <button
             onClick={endConversation}
             className="btn btn-danger btn-large"
           >
-            🛑 End Conversation
+            End conversation
           </button>
         )}
       </div>
 
-      {isListening && (
-        <div className="listening-indicator">
-          <div className="mic-pulse">🎤</div>
-          <span>Listening...</span>
-        </div>
-      )}
+      <div className="vc-live-strip">
+        {isListening && (
+          <div className="listening-indicator">
+            <span className="vc-dot" aria-hidden />
+            <span>Listening…</span>
+          </div>
+        )}
+        {isProcessing && !isListening && (
+          <div className="processing-indicator">
+            <div className="spinner" aria-hidden />
+            <span>Processing…</span>
+          </div>
+        )}
+      </div>
 
-      {isProcessing && (
-        <div className="processing-indicator">
-          <div className="spinner"></div>
-          <span>Processing...</span>
-        </div>
-      )}
+      <div className="vc-cards">
+        {currentTranscript && (
+          <div className="transcript-display">
+            <p className="label">Your message</p>
+            <p className="transcript">{currentTranscript}</p>
+          </div>
+        )}
+        {uiMessage && (
+          <div className="ai-response">
+            <p className="label">AI response</p>
+            <p className="message">{uiMessage}</p>
+          </div>
+        )}
+      </div>
 
-      {currentTranscript && (
-        <div className="transcript-display">
-          <p className="label">Your message:</p>
-          <p className="transcript">{currentTranscript}</p>
-        </div>
-      )}
-
-      {uiMessage && (
-        <div className="ai-response">
-          <p className="label">AI Response:</p>
-          <p className="message">{uiMessage}</p>
-        </div>
-      )}
-
-      <div className="messages-history">
-        <p className="label">Conversation History:</p>
+      <section className="messages-history" aria-label="Conversation history">
+        <p className="label">Conversation history</p>
         <div className="messages-list">
           {messages.length === 0 ? (
-            <p className="empty-state">No messages yet. Start a conversation!</p>
+            <p className="empty-state">No messages yet. Start a conversation to chat about the image.</p>
           ) : (
-            messages.map((msg, idx) => (
-              <div key={idx} className={`message ${msg.role}`}>
-                <span className="role">{msg.role === 'user' ? '👤' : '🤖'}</span>
+            messages.map((msg) => (
+              <div key={msg.timestamp} className={`message ${msg.role}`} role="listitem">
+                <span className="role" aria-hidden>{msg.role === 'user' ? '👤' : '🤖'}</span>
                 <span className="content">{msg.content}</span>
               </div>
             ))
           )}
         </div>
-      </div>
+      </section>
     </div>
   );
 };

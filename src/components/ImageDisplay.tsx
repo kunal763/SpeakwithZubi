@@ -27,8 +27,8 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ onImageChange }) => {
     },
     {
       src: 'https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=800&h=600&fit=crop',
-      title: 'Ocean Waves',
-      description: 'Peaceful ocean landscape'
+      title: 'Friends seeing the sunset',
+      description: 'friends are seeing the sunset together from a hill which looks like a cliff'
     },
     {
       src: 'https://images.unsplash.com/photo-1558898478-9ac0461266c1?w=800&h=600&fit=crop',
