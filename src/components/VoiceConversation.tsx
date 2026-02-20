@@ -24,6 +24,7 @@ const VoiceConversation: React.FC<VoiceConversationProps> = ({
   const [conversationActive, setConversationActive] = useState(false);
   const [currentTranscript, setCurrentTranscript] = useState('');
   const [uiMessage, setUiMessage] = useState('');
+  const [backgroundEmojis, setBackgroundEmojis] = useState<string>('');
   
   const recognitionRef = useRef<any>(null);
   const isProcessingRef = useRef(false);
@@ -71,6 +72,16 @@ const VoiceConversation: React.FC<VoiceConversationProps> = ({
         setMessages(prev => [...prev, assistantMessage]);
         setUiMessage(response.text || '');
 
+        // Handle background emojis from AI response
+        if (response.backgroundEmojis) {
+          setBackgroundEmojis(response.backgroundEmojis);
+          
+          // Clear emojis after 6 seconds
+          setTimeout(() => {
+            setBackgroundEmojis('');
+          }, 6000);
+        }
+
         if (response.toolCalls && response.toolCalls.length > 0) {
           processToolCalls(response.toolCalls);
         }
@@ -106,7 +117,7 @@ const VoiceConversation: React.FC<VoiceConversationProps> = ({
       recognitionRef.current = new SpeechRecognition();
       recognitionRef.current.continuous = true;
       recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = 'en-US';
+      recognitionRef.current.lang = 'en-IN';
 
       recognitionRef.current.onstart = () => {
         setIsListening(true);
@@ -216,8 +227,25 @@ const VoiceConversation: React.FC<VoiceConversationProps> = ({
 
   return (
     <div className="voice-conversation-container">
+      {/* Emoji Display Panel at Top */}
+      <div className="emoji-display-panel">
+        <div className="emoji-panel-content">
+          {backgroundEmojis ? (
+            <div className="emoji-showcase">
+              {backgroundEmojis}
+            </div>
+          ) : (
+            <div className="emoji-placeholder">
+              <span className="placeholder-icon">💬</span>
+              <p>Emojis will appear here based on what you say!</p>
+            </div>
+          )}
+        </div>
+      </div>
+
       <header className="conversation-header">
         <h2>Voice Conversation</h2>
+        <p className="game-hint">🎮 Talk about what you see - watch the emojis appear!</p>
       </header>
 
       <div className="conversation-status">
